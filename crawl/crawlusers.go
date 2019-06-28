@@ -1,6 +1,9 @@
 package crawl
 
 import (
+	"sync"
+	"github.com/google/uuid"
+	"os"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -14,15 +17,56 @@ import (
 	"github.com/hyetpang/taipingyangdata/model"
 )
 
+// StartCrawl  starts crawer 
+func StartCrawl(cookie string, wg *sync.WaitGroup) {
+	regionCurPage := 1
+	regionTotalPage := 1
+	for regionCurPage <= regionTotalPage {
+		// get region num
+		regionReq, err := http.NewRequest(http.MethodPost, "https://www.cpic.com.cn/agent-ebw/view/fcRegion/personalArea.jsp", strings.NewReader(fmt.Sprintf("currentPageIndex=%d&pageSize=10&autoload=true&areaCode=&areaName=&startDate=&endDate=&currentDate=2019-06-28&areaType=01&regionCharacter=&_action=findByParams", regionCurPage)))
+		if err != nil {
+			panic(err)
+		}
+		regionData := doPostResult(regionReq, cookie)
+		regionCurPage++
+		regionTotalPage ,_ = strconv.Atoi(regionData["totalPage"].(string))
+		if regionTotalPage == 0 {
+			break
+		}
+		regionResult := regionData["items"].([]interface{})
+		for _, v:= range regionResult {
+			item := v.(map[string]interface{})
+			regionNumber := item["regionNumber"].(string)
+			wg.Add(1)
+			go CrawlUsers(cookie, regionNumber, wg)
+		}
+	}
+
+}
+
 // CrawlUsers 获取用户信息
-func CrawlUsers(cookie string) {
-	userDataCap := 100
+func CrawlUsers(cookie, regionNum string, wg *sync.WaitGroup) {
+	// guerdan
+	go getGuErDan(cookie, regionNum, wg)
+	// yinbao
+	// go getYinBao(cookie, regionNum, wg)
+	// // chexian
+	// go getCheXian(cookie, regionNum, wg)
+	wg.Done()
+}
+
+// get guerdan 
+func getGuErDan(cookie, regionNum string, wg *sync.WaitGroup) {
+	excelFile := excel.InitExcel()
+	wg.Add(1)
+	defer wg.Done()
+	userDataCap := 500
 	users := make([]*model.UserData, 0, userDataCap)
 	// TODO: 从参数设置cookie
 	totalPage := 1
 	curPage := 1
 	for curPage <= totalPage {
-		req, err := http.NewRequest(http.MethodPost, "https://www.cpic.com.cn/agent-ebw/view/fcRegion/fcRegionCust.jsp", strings.NewReader(fmt.Sprintf("currentPageIndex=%d&pageSize=10&autoload=true&apname=&apid=&minBirthMonth=&maxBirthMonth=&minCreateDate=&maxCreateDate=&isTelVist=&isPolicyReview=&isVist=&signInsPolicyFlg=&sortOrder=&matchStartDate=&matchEndDate=&custFlag=&regionNumber=CDSP000353&_action=findByParams", curPage)))
+		req, err := http.NewRequest(http.MethodPost, "https://www.cpic.com.cn/agent-ebw/view/fcRegion/fcRegionCust.jsp", strings.NewReader(fmt.Sprintf("currentPageIndex=%d&pageSize=10&autoload=true&apname=&apid=&minBirthMonth=&maxBirthMonth=&minCreateDate=&maxCreateDate=&isTelVist=&isPolicyReview=&isVist=&signInsPolicyFlg=&sortOrder=&matchStartDate=&matchEndDate=&custFlag=&regionNumber=%s&_action=findByParams", curPage, regionNum)))
 		if err != nil {
 			panic(err)
 		}
@@ -47,6 +91,9 @@ func CrawlUsers(cookie string) {
 		result := data["result"].(map[string]interface{})
 		// 获取详情
 		totalPage, _ = strconv.Atoi(result["totalPage"].(string))
+		if totalPage == 0 {
+			break
+		}
 		// 获取数据
 		items := result["items"].([]interface{})
 		for _, v := range items {
@@ -98,8 +145,11 @@ func CrawlUsers(cookie string) {
 					panic(err)
 				}
 				policyData := policyDataWrap["result"].(map[string]interface{})
-				policyTotalPage, _ = strconv.Atoi(policyData["totalPage"].(string))
 				policyCurPage++
+				policyTotalPage, _ = strconv.Atoi(policyData["totalPage"].(string))
+				if policyTotalPage == 0 {
+					break
+				}
 				// 处理数据
 				policyItems := policyData["items"].([]interface{})
 				for _, v := range policyItems {
@@ -167,18 +217,182 @@ func CrawlUsers(cookie string) {
 				}
 				if len(users) >= userDataCap {
 					// 大于等于限制的容量，开始写入数据
-					excel.SaveData(users, userDataCap)
+					excel.SaveData(users, userDataCap, excelFile)
 				}
 			}
 			if len(users) >= userDataCap {
 				// 大于等于限制的容量，开始写入数据
-				excel.SaveData(users, userDataCap)
+				excel.SaveData(users, userDataCap, excelFile)
 			}
 		}
 		if len(users) >= userDataCap {
 			// 大于等于限制的容量，开始写入数据
-			excel.SaveData(users, userDataCap)
+			excel.SaveData(users, userDataCap, excelFile)
 		}
 	}
-	excel.SaveData(users, userDataCap)
+	excel.SaveData(users, userDataCap, excelFile)
+	file, _ := os.Create(uuid.New().String() + ".xlsx")
+	excel.WriteToDisk(file, excelFile)
+}
+
+func getYinBao(cookie, regionNum string, wg *sync.WaitGroup) {
+	wg.Add(1)
+	defer wg.Done()
+	excelFile := excel.InitExcel()
+	userDataCap := 500
+	users := make([]*model.UserData, 0, userDataCap)
+	yinbaoCurPage := 1
+	yinbaoTotalPage := 1
+	for yinbaoCurPage <= yinbaoTotalPage {
+		yinbaoUserReq, err := http.NewRequest(http.MethodPost, "https://www.cpic.com.cn/agent-ebw/view/fcRegion/fcRegionBankCust.jsp", strings.NewReader(fmt.Sprintf("currentPageIndex=%d&pageSize=10&autoload=true&apname=&apid=&minBirthMonth=&maxBirthMonth=&minCreateDate=&maxCreateDate=&isTelVist=&isPolicyReview=&isVist=&signInsPolicyFlg=&sortOrder=&issprerec=&regionNumber=8909877&regionCharacter=QY1&_action=findByParams", yinbaoCurPage)))
+		if err != nil {
+			panic(err)
+		}
+		yinbaoUsers := doPostResult(yinbaoUserReq, cookie)
+		yinbaoCurPage++
+		yinbaoTotalPage, _ = strconv.Atoi(yinbaoUsers["totalPage"].(string))
+		if yinbaoTotalPage == 0 {
+			break
+		}
+		yinbaoUserItems := yinbaoUsers["item"].([]interface{})
+		for _, v := range yinbaoUserItems {
+			item := v.(map[string]interface{})
+			var u model.UserData
+			u.Name = item["apname"].(string)
+			u.IDCard = item["apid"].(string)
+			// policy
+			policyCurPage := 1
+			policyTotalPage := 1
+			for policyCurPage <= policyTotalPage {
+				policiesReq, err := http.NewRequest(http.MethodPost, "https://www.cpic.com.cn/agent-ebw/view/fccustomer/orphan/myOrphanPolicys.jsp", strings.NewReader(fmt.Sprintf("currentPageIndex=%d&pageSize=5&autoload=true&asysc=sync&policyHorderNo=%s&_action=findByParams", policyCurPage, u.IDCard)))
+				if err != nil {
+					panic(err)
+				}
+				policyData := doPost(policiesReq, cookie)
+				policyResult := policyData["result"].(map[string]interface{})
+				policyTotalPage, _ = strconv.Atoi(policyResult["totalPage"].(string))
+				if policyTotalPage == 0 {
+					break
+				}
+				policyItems := policyResult["items"].([]interface{})
+				for _, v := range policyItems {
+					var userPolicy model.UserData
+					userPolicy.IDCard = u.IDCard
+					userPolicy.Name = u.Name
+					item := v.(map[string]interface{})
+					userPolicy.PolicyNum = item["policyNo"].(string)
+					userPolicy.PolicyName = item["insuranceName"].(string)
+					userPolicy.HowMuch = item["premium"].(string)
+					userPolicy.PolicyType = "银保"
+					userPolicy.BuyDate = item["payStartDate"].(string)
+					userPolicy.ExpireDate = item["respendDate"].(string)
+					userPolicy.BuyedYear = item["payYearnum"].(string)
+					paytel := item["paytel"]
+					if paytel != nil {
+						userPolicy.PhoneNum = paytel.(string)
+					}
+					payaddress := item["payaddress"]
+					if payaddress != nil {
+						userPolicy.Address = payaddress.(string)
+					}
+					users = append(users, &userPolicy)
+				}
+				if len(users) >= userDataCap {
+					// 大于等于限制的容量，开始写入数据
+					excel.SaveData(users, userDataCap,excelFile)
+				}
+			}
+			if len(users) >= userDataCap {
+				// 大于等于限制的容量，开始写入数据
+				excel.SaveData(users, userDataCap, excelFile)
+			}
+		}
+	}
+	excel.SaveData(users, userDataCap,excelFile)
+	file, _ := os.Create(uuid.New().String() + ".xlsx")
+	excel.WriteToDisk(file,excelFile)
+}
+
+func getCheXian(cookie, regionNum string, wg *sync.WaitGroup)  {
+	wg.Add(1)
+	defer wg.Done()
+	excelFile := excel.InitExcel()
+	userDataCap := 500
+	users := make([]*model.UserData, 0, userDataCap)
+	cheXianCurPage := 1
+	cheXianTotalPage := 1
+	for cheXianCurPage <= cheXianTotalPage {
+		chexianUserReq, err := http.NewRequest(http.MethodPost, "https://www.cpic.com.cn/agent-ebw/view/fcRegion/fcRegionCarCust.jsp", strings.NewReader(fmt.Sprintf("currentPageIndex=%d&pageSize=10&autoload=true&custNm=&custIdentity=&minBirthMonth=&maxBirthMonth=&minCustValueNew=&maxCustValueNew=&custGender=&custPlateNumber=&custVehicleModel=&regionNumber=%s&_action=findByParams", cheXianCurPage, regionNum)))
+		if err != nil {
+			panic(err)
+		}
+		chexianUserResult := doPostResult(chexianUserReq, cookie)
+		cheXianCurPage++
+		cheXianTotalPage, _ = strconv.Atoi(chexianUserResult["totalPage"].(string))
+		if cheXianTotalPage == 0 {
+			break
+		}
+		chexianUserItems := chexianUserResult["items"].([]interface{})
+		for _, chexianuser := range chexianUserItems {
+			var u model.UserData
+			cheXianUser := chexianuser.(map[string]interface{})
+			u.Name = cheXianUser["custNm"].(string)
+			u.IDCard = cheXianUser["custIdentity"].(string)
+			// details
+			id := cheXianUser["id"].(string)
+			chexianuserDetailsReq, err := http.NewRequest(http.MethodGet, fmt.Sprintf("https://www.cpic.com.cn/agent-ebw/view/customer/policy/fcRegionCarCustDetails.jsp?id=%s", id), nil)
+			if err != nil {
+				panic(err)
+			}
+			chexianuserDetailsResp, err := http.DefaultClient.Do(chexianuserDetailsReq)
+			if err != nil {
+				panic(err)
+			}
+			document, err := goquery.NewDocumentFromResponse(chexianuserDetailsResp)
+			if err != nil {
+				panic(err)
+			}
+			u.PhoneNum = document.Find("#con1 > table.open_table > tbody > tr:nth-child(4) > td:nth-child(2)").Text()
+			u.Address = document.Find("#con1 > table.open_table > tbody > tr:nth-child(6) > td:nth-child(2)").Text()
+			users = append(users,&u)
+		}
+		if len(users) >= userDataCap {
+			// 大于等于限制的容量，开始写入数据
+			excel.SaveData(users, userDataCap,excelFile)
+		}
+	}
+	excel.SaveData(users, userDataCap,excelFile)
+	file, _ := os.Create(uuid.New().String() + ".xlsx")
+	excel.WriteToDisk(file,excelFile)
+}
+
+
+func convertBodyToMap(body io.Reader) map[string]interface{} {
+	var buf bytes.Buffer
+	io.Copy(&buf, body)
+	newstring := strings.Replace(buf.String(), "'", "\"", -1)
+	fmt.Println(buf.String())
+	policyDataWrap := make(map[string]interface{})
+	err := json.Unmarshal([]byte(newstring), &policyDataWrap)
+	if err != nil {
+		panic(err)
+	}
+	return policyDataWrap
+}
+
+func doPost(req *http.Request, cookie string) map[string]interface{} {
+	req.Header.Set("Cookie", cookie)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		panic(err)
+	}
+	data := convertBodyToMap(resp.Body)
+	resp.Body.Close()
+	return data
+}
+
+func doPostResult(req *http.Request, cookie string) map[string]interface{} {
+	data := doPost(req, cookie)
+	return data["result"].(map[string]interface{})
 }

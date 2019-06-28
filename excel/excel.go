@@ -6,10 +6,8 @@ import (
 	"github.com/tealeg/xlsx"
 )
 
-var excelFile *xlsx.File
-
-func init() {
-	excelFile = xlsx.NewFile()
+func InitExcel() *xlsx.File {
+	excelFile := xlsx.NewFile()
 	sheet1, err := excelFile.AddSheet("sheet1")
 	if err != nil {
 		panic(err)
@@ -26,10 +24,11 @@ func init() {
 	row.AddCell().SetString("地址")
 	row.AddCell().SetString("手机号")
 	row.AddCell().SetString("保单类型")
+	return excelFile
 }
 
 // SaveData 保存数据
-func SaveData(users []*model.UserData, userDataCap int, ) {
+func SaveData(users []*model.UserData, userDataCap int, excelFile *xlsx.File) {
 	sheet := excelFile.Sheet["sheet1"]
 	for _, v := range users {
 		row := sheet.AddRow()
@@ -49,6 +48,6 @@ func SaveData(users []*model.UserData, userDataCap int, ) {
 }
 
 // WriteToDisk 写到磁盘
-func WriteToDisk(file *os.File) {
+func WriteToDisk(file *os.File, excelFile *xlsx.File) {
 	excelFile.Write(file)
 }
